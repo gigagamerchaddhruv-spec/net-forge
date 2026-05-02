@@ -1,77 +1,136 @@
 import socket
 import ipaddress
 import threading
+import time
 import tkinter as tk
-from tkinter import scrolledtext
+from tkinter import ttk
 
-# =========================
+# ======================
 # CONFIG
-# =========================
+# ======================
 
 NETWORK = "192.168.1.0/24"
+SCAN_DELAY = 5
 
-# =========================
-# CORE SCANNER
-# =========================
+COMMON_PORTS = {
+    22: "SSH",
+    80: "HTTP",
+    443: "HTTPS",
+    445: "SMB",
+}
 
-def is_host_up(ip):
+devices = {}
+
+# ======================
+# CORE SCANNER (CHAOS EDITION)
+# ======================
+
+def check_host(ip):
     try:
-        socket.create_connection((str(ip), 80), timeout=0.3)
+        socket.create_connection((str(ip), 80), timeout=0.2)
         return True
     except:
         return False
 
 
-def scan_network(output_box):
-    output_box.insert(tk.END, f"Scanning {NETWORK}...\n\n")
+def scan_ports(ip):
+    open_ports = []
+
+    for port in COMMON_PORTS.keys():
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(0.2)
+            result = sock.connect_ex((str(ip), port))
+            if result == 0:
+                open_ports.append(f"{port}:{COMMON_PORTS[port]}")
+            sock.close()
+        except:
+            pass
+
+    return open_ports
+
+
+def scan_network():
+    global devices
 
     net = ipaddress.ip_network(NETWORK, strict=False)
 
     for ip in net.hosts():
 
-        if is_host_up(ip):
-            msg = f"[+] Device found: {ip}\n"
-            output_box.insert(tk.END, msg)
-            output_box.see(tk.END)
+        ip_str = str(ip)
 
-    output_box.insert(tk.END, "\nScan complete.\n")
+        if check_host(ip):
+
+            ports = scan_ports(ip)
+
+            devices[ip_str] = {
+                "ip": ip_str,
+                "ports": ", ".join(ports) if ports else "unknown",
+                "status": "alive"
+            }
 
 
-# =========================
-# GUI LOGIC
-# =========================
+# ======================
+# GUI CHAOS
+# ======================
 
-def start_scan(output_box):
-    thread = threading.Thread(target=scan_network, args=(output_box,))
+def refresh_table(tree):
+
+    tree.delete(*tree.get_children())
+
+    for ip, data in devices.items():
+        tree.insert("", "end", values=(data["ip"], data["status"], data["ports"]))
+
+
+def scan_loop(tree):
+
+    while True:
+
+        scan_network()
+        refresh_table(tree)
+
+        time.sleep(SCAN_DELAY)
+
+
+# ======================
+# UI BUILD
+# ======================
+
+def build_gui():
+
+    root = tk.Tk()
+    root.title("NetForge - Spaghetti Monster Edition")
+    root.geometry("800x500")
+
+    title = tk.Label(root, text="NETFORGE", font=("Arial", 20))
+    title.pack(pady=10)
+
+    cols = ("IP", "STATUS", "PORTS")
+
+    tree = ttk.Treeview(root, columns=cols, show="headings")
+
+    for c in cols:
+        tree.heading(c, text=c)
+
+    tree.pack(fill="both", expand=True, padx=10, pady=10)
+
+    btn = tk.Button(
+        root,
+        text="Force Scan Now (optional chaos button)",
+        command=lambda: scan_network()
+    )
+    btn.pack(pady=5)
+
+    thread = threading.Thread(target=scan_loop, args=(tree,))
     thread.daemon = True
     thread.start()
 
-
-def build_gui():
-    window = tk.Tk()
-    window.title("NetForge - Network Scanner")
-    window.geometry("600x400")
-
-    title = tk.Label(window, text="NetForge", font=("Arial", 18))
-    title.pack(pady=10)
-
-    scan_btn = tk.Button(
-        window,
-        text="Scan Network",
-        font=("Arial", 12),
-        command=lambda: start_scan(output_box)
-    )
-    scan_btn.pack(pady=10)
-
-    output_box = scrolledtext.ScrolledText(window, width=70, height=15)
-    output_box.pack(padx=10, pady=10)
-
-    window.mainloop()
+    root.mainloop()
 
 
-# =========================
-# RUN
-# =========================
+# ======================
+# RUN IT ALL
+# ======================
 
 if __name__ == "__main__":
     build_gui()

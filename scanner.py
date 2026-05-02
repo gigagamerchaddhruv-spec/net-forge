@@ -1,57 +1,56 @@
-import socket
+import platform
+import subprocess
 import ipaddress
-
-COMMON_PORTS = {
-    22: "SSH",
-    80: "HTTP",
-    443: "HTTPS",
-    445: "SMB"
-}
 
 NETWORK = "192.168.1.0/24"
 
 
-def is_host_alive(ip):
+def ping(ip):
+    system = platform.system().lower()
+
+    if system == "windows":
+        cmd = ["ping", "-n", "1", "-w", "500", str(ip)]
+    else:
+        cmd = ["ping", "-c", "1", "-W", "1", str(ip)]
+
     try:
-        socket.create_connection((str(ip), 80), timeout=0.2)
-        return True
+        output = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+
+        if output.returncode == 0:
+
+            # very simple latency extraction
+            text = output.stdout
+
+            for line in text.splitlines():
+                if "time=" in line:
+                    return line.split("time=")[1].split(" ")[0]
+
+            return "ok"
+
     except:
-        return False
+        pass
 
-
-def scan_ports(ip):
-    open_ports = []
-
-    for port, name in COMMON_PORTS.items():
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(0.2)
-
-            if sock.connect_ex((str(ip), port)) == 0:
-                open_ports.append(f"{port}:{name}")
-
-            sock.close()
-        except:
-            pass
-
-    return open_ports
+    return None
 
 
 def scan_network():
-    devices = {}
+    devices = []
 
     net = ipaddress.ip_network(NETWORK, strict=False)
 
     for ip in net.hosts():
 
-        ip_str = str(ip)
+        latency = ping(ip)
 
-        if is_host_alive(ip):
-
-            devices[ip_str] = {
-                "ip": ip_str,
-                "ports": scan_ports(ip),
-                "status": "alive"
-            }
+        if latency:
+            devices.append({
+                "ip": str(ip),
+                "latency": latency
+            })
 
     return devices
